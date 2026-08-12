@@ -48,6 +48,11 @@
   .island-main{flex:1;cursor:pointer;min-width:0;}
   .island-name{font-size:19px;font-weight:700;line-height:1.25;}
   .island-meta{font-size:12px;color:var(--muted);margin-top:3px;}
+  .drag-handle{width:28px;height:40px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+    color:var(--muted);font-size:18px;cursor:grab;touch-action:none;user-select:none;}
+  .island.dragging{opacity:.5;}
+  .island.drop-before{box-shadow:inset 0 3px 0 var(--amber);}
+  .island.drop-after{box-shadow:inset 0 -3px 0 var(--amber);}
 
   .input,.textarea{width:100%;font-family:inherit;font-size:16px;color:var(--ink);
     background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 13px;}
@@ -550,15 +555,13 @@ function viewList() {
           something you fumbled this week — and they become your first island.
         </div>` :
         islands.map((isl, i) => `
-          <div class="card island">
+          <div class="card island" data-id="${isl.id}">
+            <span class="drag-handle" data-act="draghandle" data-id="${isl.id}"
+              role="button" tabindex="0" aria-label="Drag to reorder ${esc(isl.name)}">⠿</span>
             <div class="island-main" data-act="open" data-id="${isl.id}" role="button" tabindex="0">
               <div class="island-name">${esc(isl.name)}</div>
               <div class="island-meta">${isl.sentences.length} sentence${isl.sentences.length === 1 ? '' : 's'}</div>
             </div>
-            <button class="icon-btn" data-act="moveup" data-id="${isl.id}" ${i === 0 ? 'disabled' : ''}
-              aria-label="Move ${esc(isl.name)} up">↑</button>
-            <button class="icon-btn" data-act="movedown" data-id="${isl.id}" ${i === islands.length - 1 ? 'disabled' : ''}
-              aria-label="Move ${esc(isl.name)} down">↓</button>
             <button class="icon-btn" data-act="edit" data-id="${isl.id}" aria-label="Edit ${esc(isl.name)}">✎</button>
             <button class="icon-btn" data-act="del" data-id="${isl.id}" aria-label="Delete ${esc(isl.name)}">🗑</button>
           </div>`).join('')}
@@ -766,14 +769,6 @@ document.addEventListener('click', async (e) => {
     view.revealed = { shadow:{}, recall:{} }; render();
   }
 
-  else if (act === 'moveup' || act === 'movedown') {
-    const idx = islands.findIndex(i => i.id === el.dataset.id);
-    const swapWith = act === 'moveup' ? idx - 1 : idx + 1;
-    if (idx < 0 || swapWith < 0 || swapWith >= islands.length) return;
-    [islands[idx], islands[swapWith]] = [islands[swapWith], islands[idx]];
-    save(); render();
-  }
-
   else if (act === 'del') {
     const isl = islands.find(i => i.id === el.dataset.id);
     if (isl && confirm(`Delete “${isl.name}” and its ${isl.sentences.length} sentences?`)) {
@@ -939,6 +934,70 @@ document.addEventListener('keydown', (e) => {
     if (el) { e.preventDefault(); el.click(); }
   }
 });
+
+/* ------------------- drag-to-reorder (islands) -------------------
+   Pointer Events, not HTML5 drag-and-drop: HTML5 dragstart/dragover
+   don't fire reliably on touch, and this needs to work on the phone. */
+
+let dragState = null;
+
+document.addEventListener('pointerdown', (e) => {
+  const handle = e.target.closest('[data-act="draghandle"]');
+  if (!handle) return;
+  const card = handle.closest('.island');
+  const container = card.parentElement;
+  const cards = Array.from(container.querySelectorAll('.island')).map(el => ({
+    id: el.dataset.id, el, rect: el.getBoundingClientRect()
+  }));
+  dragState = { id: handle.dataset.id, cardEl: card, cards, startY: e.clientY, dropTarget: null };
+  handle.setPointerCapture(e.pointerId);
+  card.classList.add('dragging');
+  card.style.position = 'relative';
+  card.style.zIndex = '10';
+  e.preventDefault();
+});
+
+document.addEventListener('pointermove', (e) => {
+  if (!dragState) return;
+  const dy = e.clientY - dragState.startY;
+  dragState.cardEl.style.transform = `translateY(${dy}px)`;
+
+  let target = null;
+  for (const c of dragState.cards) {
+    if (c.id === dragState.id) continue;
+    if (e.clientY >= c.rect.top && e.clientY <= c.rect.bottom) {
+      target = { id: c.id, before: e.clientY < c.rect.top + c.rect.height / 2 };
+      break;
+    }
+  }
+  dragState.cards.forEach(c => c.el.classList.remove('drop-before', 'drop-after'));
+  if (target) dragState.cards.find(c => c.id === target.id).el
+    .classList.add(target.before ? 'drop-before' : 'drop-after');
+  dragState.dropTarget = target;
+});
+
+function endDrag() {
+  if (!dragState) return;
+  const { id, dropTarget, cardEl, cards } = dragState;
+  cardEl.style.transform = ''; cardEl.style.position = ''; cardEl.style.zIndex = '';
+  cardEl.classList.remove('dragging');
+  cards.forEach(c => c.el.classList.remove('drop-before', 'drop-after'));
+
+  if (dropTarget) {
+    const fromIdx = islands.findIndex(i => i.id === id);
+    if (fromIdx >= 0) {
+      const [moved] = islands.splice(fromIdx, 1);
+      const toIdx = islands.findIndex(i => i.id === dropTarget.id);
+      islands.splice(dropTarget.before ? toIdx : toIdx + 1, 0, moved);
+      save();
+    }
+  }
+  dragState = null;
+  render();
+}
+
+document.addEventListener('pointerup', endDrag);
+document.addEventListener('pointercancel', endDrag);
 
 function updateOnline() {
   document.getElementById('offline').classList.toggle('hidden', navigator.onLine);
