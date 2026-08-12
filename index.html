@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#E6E9E3">
+<title>Islands — French practice</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<style>
+  @font-face{
+    font-family:'Nunito';font-style:normal;font-weight:400 700;font-display:swap;
+    src:local('Nunito'),local('Nunito Sans');
+  }
+  :root{
+    --ground:#E6E9E3; --surface:#FBFBF9; --ink:#171C18; --muted:#6B746C;
+    --line:#D4D9D0; --amber:#96660F; --teal:#1C5F55; --danger:#7A3820;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;background:var(--ground);color:var(--ink);}
+  body{
+    font-family:'Nunito',ui-rounded,'SF Pro Rounded','Segoe UI Variable',system-ui,sans-serif;
+    font-size:16px;line-height:1.5;
+    padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);
+  }
+  .wrap{max-width:640px;margin:0 auto;padding:22px 18px 110px;}
+
+  .eyebrow{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:700;}
+  h1{font-size:32px;line-height:1.15;margin:6px 0 0;font-weight:800;letter-spacing:-.01em;}
+  .sub{color:var(--muted);font-size:14px;margin-top:8px;}
+  .note{font-size:12.5px;color:var(--muted);line-height:1.55;margin-top:12px;}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;}
+
+  button{font-family:inherit;}
+  .btn{font-size:14px;font-weight:600;border-radius:10px;border:1px solid var(--line);
+    background:var(--surface);color:var(--ink);padding:11px 15px;cursor:pointer;
+    display:inline-flex;align-items:center;gap:8px;min-height:44px;}
+  .btn:active{background:#EFF0EC;}
+  .btn:disabled{opacity:.45;}
+  .btn:focus-visible{outline:2px solid var(--amber);outline-offset:2px;}
+  .btn-primary{background:var(--ink);color:#F7F8F5;border-color:var(--ink);}
+  .btn-full{width:100%;justify-content:center;}
+  .btn-row{display:flex;gap:8px;flex-wrap:wrap;}
+
+  .island{display:flex;align-items:center;gap:12px;width:100%;padding:15px 16px;margin-bottom:10px;text-align:left;}
+  .island-main{flex:1;cursor:pointer;min-width:0;}
+  .island-name{font-size:19px;font-weight:700;line-height:1.25;}
+  .island-meta{font-size:12px;color:var(--muted);margin-top:3px;}
+
+  .input,.textarea{width:100%;font-family:inherit;font-size:16px;color:var(--ink);
+    background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 13px;}
+  .textarea{min-height:130px;resize:vertical;line-height:1.6;}
+  .input:focus,.textarea:focus{outline:2px solid var(--amber);border-color:transparent;}
+  .label{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);
+    font-weight:700;display:block;margin:20px 0 8px;}
+
+  .modebar{display:flex;gap:4px;background:#DCE0D8;padding:4px;border-radius:12px;margin-bottom:12px;}
+  .mode{flex:1;border:none;background:transparent;font-size:14px;font-weight:700;padding:11px;
+    border-radius:9px;cursor:pointer;color:var(--muted);}
+  .mode.on-shadow{background:var(--surface);color:var(--amber);box-shadow:0 1px 2px rgba(0,0,0,.06);}
+  .mode.on-recall{background:var(--surface);color:var(--teal);box-shadow:0 1px 2px rgba(0,0,0,.06);}
+
+  .transport{display:flex;align-items:center;gap:12px;padding:12px 13px;margin-bottom:12px;}
+  .play{width:46px;height:46px;border-radius:50%;border:none;cursor:pointer;display:flex;
+    align-items:center;justify-content:center;color:#F7F8F5;flex-shrink:0;font-size:17px;}
+  .transport-read{font-size:12.5px;color:var(--muted);flex:1;line-height:1.4;}
+  .transport-read b{color:var(--ink);}
+
+  .settings{padding:14px;margin-bottom:12px;display:grid;gap:16px;}
+  .slider-row{display:grid;grid-template-columns:74px 1fr 46px;align-items:center;gap:10px;font-size:13px;}
+  .slider-row span:first-child{color:var(--muted);font-weight:600;}
+  .slider-row span:last-child{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;}
+  input[type=range]{width:100%;accent-color:var(--amber);height:32px;}
+
+  .sent{padding:15px 16px;margin-bottom:10px;position:relative;overflow:hidden;}
+  .sent.active{border-color:var(--amber);background:#FDFBF5;}
+  .sent-top{display:flex;align-items:center;gap:10px;margin-bottom:9px;}
+  .num{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;font-weight:700;min-width:22px;}
+  .icon-btn{width:40px;height:40px;border-radius:9px;border:1px solid var(--line);background:var(--surface);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--ink);font-size:15px;}
+  .icon-btn:active{background:#EFF0EC;}
+  .prompt{font-size:20px;line-height:1.45;font-weight:700;margin:0;}
+  .reveal{margin-top:9px;background:none;border:none;padding:6px 0;font-size:13px;font-style:italic;
+    color:var(--muted);cursor:pointer;font-weight:600;}
+  .answer{margin-top:9px;padding-top:9px;border-top:1px solid var(--line);}
+  .answer-text{font-size:18px;line-height:1.45;font-weight:400;color:#4A534C;margin:0;}
+  .progress{position:absolute;left:0;bottom:0;height:2px;background:var(--amber);transition:width .1s linear;}
+
+  .empty{padding:30px 18px;text-align:center;color:var(--muted);font-size:14px;line-height:1.6;}
+  .err{background:#F7E4DE;border:1px solid #E2BFB4;color:var(--danger);border-radius:10px;
+    padding:11px 13px;font-size:13px;margin-top:12px;line-height:1.5;}
+  .ok{background:#DDE9E5;border:1px solid #B6CFC7;color:#14483F;border-radius:10px;
+    padding:11px 13px;font-size:13px;margin-top:12px;line-height:1.5;}
+
+  .pair{padding:12px 13px;margin-bottom:8px;}
+  .pair .fr{font-size:16px;font-weight:700;margin:0 0 8px;}
+  .pair input{width:100%;font-family:inherit;font-size:15px;padding:9px 11px;
+    border:1px solid var(--line);border-radius:8px;background:#fff;}
+  .pair input:focus{outline:2px solid var(--amber);border-color:transparent;}
+
+  .offline-bar{background:#F2E7CF;border-bottom:1px solid #DFCFA9;color:#6B4A0B;
+    font-size:12.5px;padding:7px 16px;text-align:center;font-weight:600;}
+  .hidden{display:none !important;}
+  @media (prefers-reduced-motion:reduce){.progress{transition:none;}}
+</style>
+</head>
+<body>
+
+<div id="offline" class="offline-bar hidden">Offline — auto-translation paused, everything else works</div>
+<div class="wrap" id="app"></div>
+
+<script>
+/* =================================================================
+   Islands — offline French shadowing & recall
+   Data lives in localStorage. Export/import moves it between devices.
+   ================================================================= */
+
+const LS_KEY = 'islands.v1';
+const LS_PREFS = 'islands.prefs.v1';
+
+/* ---------------------------- state ---------------------------- */
+
+let islands = [];
+let prefs = { reps: 2, rate: 0.85, gap: 2 };
+let view = { screen: 'list', id: null, mode: 'shadow', revealed: { shadow:{}, recall:{} }, settingsOpen: false };
+let draft = null;           // in-progress import
+let playToken = 0;
+let playing = false, cursor = -1, repNow = 0;
+
+function load() {
+  try { islands = JSON.parse(localStorage.getItem(LS_KEY) || '[]'); } catch (e) { islands = []; }
+  try { Object.assign(prefs, JSON.parse(localStorage.getItem(LS_PREFS) || '{}')); } catch (e) {}
+}
+function save() {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(islands)); }
+  catch (e) { alert('Could not save — device storage may be full.'); }
+}
+function savePrefs() {
+  try { localStorage.setItem(LS_PREFS, JSON.stringify(prefs)); } catch (e) {}
+}
+
+/* ---------------------------- speech ---------------------------- */
+
+const speech = (() => {
+  let voice = null, voiceCount = 0, warmed = false;
+
+  function pick() {
+    if (!window.speechSynthesis) return;
+    const vs = window.speechSynthesis.getVoices() || [];
+    voiceCount = vs.length;
+    const fr = vs.filter(v => v.lang && v.lang.toLowerCase().replace('_','-').startsWith('fr'));
+    if (fr.length) {
+      voice = fr.find(v => /thomas|amelie|amélie|audrey|marie|denise|celine/i.test(v.name)) || fr[0];
+    }
+  }
+
+  if (window.speechSynthesis) {
+    pick();
+    window.speechSynthesis.addEventListener('voiceschanged', pick);
+    let tries = 0;
+    const iv = setInterval(() => { pick(); if (++tries > 15 || voice) clearInterval(iv); }, 400);
+  }
+
+  function speak(text, rate) {
+    return new Promise(resolve => {
+      if (!window.speechSynthesis) return resolve(false);
+      let settled = false, watchdog;
+      const finish = ok => { if (settled) return; settled = true; clearTimeout(watchdog); resolve(ok); };
+
+      // Android needs a user-gesture-adjacent silent utterance to unlock audio.
+      if (!warmed) {
+        warmed = true;
+        try { const w = new SpeechSynthesisUtterance(' '); w.volume = 0; window.speechSynthesis.speak(w); } catch (e) {}
+      }
+      try {
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = 'fr-FR';
+        if (voice) u.voice = voice;      // lang alone still routes on most Android
+        u.rate = rate;
+        u.onend = () => finish(true);
+        u.onerror = () => finish(false);
+        window.speechSynthesis.speak(u);
+        try { window.speechSynthesis.resume(); } catch (e) {}
+        const est = Math.max(4000, (text.length / 9) * 1000 / rate + 4000);
+        watchdog = setTimeout(() => finish(false), est);
+      } catch (e) { finish(false); }
+    });
+  }
+
+  function stop() { try { window.speechSynthesis.cancel(); } catch (e) {} }
+  return { speak, stop, info: () => ({ voice, voiceCount }) };
+})();
+
+function wait(ms, token) {
+  return new Promise(resolve => {
+    const started = Date.now();
+    const iv = setInterval(() => {
+      if (playToken !== token || Date.now() - started >= ms) { clearInterval(iv); resolve(); }
+    }, 60);
+  });
+}
+
+/* --------------------------- playback --------------------------- */
+
+function halt() {
+  playToken++;
+  speech.stop();
+  playing = false; cursor = -1; repNow = 0;
+  render();
+}
+
+async function playSequence(indices) {
+  const token = ++playToken;
+  speech.stop();
+  playing = true;
+  const isRecall = view.mode === 'recall';
+  const island = current();
+
+  for (const i of indices) {
+    if (playToken !== token) return;
+    cursor = i;
+    for (let r = 1; r <= prefs.reps; r++) {
+      if (playToken !== token) return;
+      repNow = r; render();
+      if (isRecall) await wait(prefs.gap * 1000, token);   // silence first: produce it yourself
+      if (playToken !== token) return;
+      await speech.speak(island.sentences[i].fr, prefs.rate);
+      if (!isRecall) await wait(prefs.gap * 1000, token);
+    }
+  }
+  if (playToken === token) { playing = false; cursor = -1; repNow = 0; render(); }
+}
+
+/* --------------------------- helpers ---------------------------- */
+
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+const current = () => islands.find(i => i.id === view.id) || null;
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+/* Re-rendering wipes the DOM, so pull the input values back into state first. */
+function captureEdits(isl) {
+  if (!isl) return;
+  const nm = document.getElementById('ednm');
+  if (nm && nm.value.trim()) isl.name = nm.value.trim();
+  document.querySelectorAll('[data-fr]').forEach(inp => {
+    const s = isl.sentences[+inp.dataset.fr];
+    if (s) s.fr = inp.value;
+  });
+  document.querySelectorAll('[data-en]').forEach(inp => {
+    const s = isl.sentences[+inp.dataset.en];
+    if (s) s.en = inp.value;
+  });
+}
+
+function splitSentences(text) {
+  return text
+    .replace(/\s+/g, ' ')
+    .split(/(?<=[.!?…])\s+(?=[«"'A-ZÀ-ÿ0-9])/)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+/* Accepts "French = English" / "French | English" / "French — English" per line,
+   otherwise treats the whole paste as French prose to be split. */
+function parsePaste(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const delim = /\s+(?:=|\||\t|—)\s+/;
+  const paired = lines.filter(l => delim.test(l));
+  if (paired.length && paired.length >= lines.length * 0.6) {
+    return lines.map(l => {
+      const [fr, en] = l.split(delim);
+      return { id: uid(), fr: (fr || '').trim(), en: (en || '').trim() };
+    }).filter(s => s.fr);
+  }
+  return splitSentences(text).map(s => ({ id: uid(), fr: s, en: '' }));
+}
+
+/* Translation.
+   The Anthropic API needs a paid key, which this app deliberately doesn't have.
+   MyMemory is free and keyless — machine quality, so the English is always editable. */
+async function translateOne(fr) {
+  const url = 'https://api.mymemory.translated.net/get?q=' +
+    encodeURIComponent(fr) + '&langpair=fr|en';
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('http ' + res.status);
+  const data = await res.json();
+  const out = data && data.responseData && data.responseData.translatedText;
+  if (!out) throw new Error('empty');
+  // The service echoes warnings in-band on quota errors.
+  if (/MYMEMORY WARNING|QUERY LENGTH LIMIT/i.test(out)) throw new Error('quota');
+  return out.trim();
+}
+
+async function translate(sentences, onProgress) {
+  const out = [];
+  for (let i = 0; i < sentences.length; i++) {
+    out.push(await translateOne(sentences[i].fr));
+    if (onProgress) onProgress(i + 1, sentences.length);
+  }
+  return out;
+}
+
+/* ------------------------ export / import ----------------------- */
+
+function exportFile() {
+  const blob = new Blob([JSON.stringify({ v: 1, exported: Date.now(), islands }, null, 2)],
+    { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const d = new Date().toISOString().slice(0, 10);
+  a.href = url; a.download = `islands-${d}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function importFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      const incoming = Array.isArray(data) ? data : data.islands;
+      if (!Array.isArray(incoming)) throw new Error('bad file');
+      let added = 0, merged = 0;
+      incoming.forEach(inc => {
+        if (!inc || !inc.name || !Array.isArray(inc.sentences)) return;
+        const hit = islands.find(x => x.id === inc.id || x.name === inc.name);
+        if (hit) {
+          const seen = new Set(hit.sentences.map(s => s.fr));
+          inc.sentences.forEach(s => { if (!seen.has(s.fr)) { hit.sentences.push(s); merged++; } });
+        } else { islands.unshift(inc); added++; }
+      });
+      save();
+      alert(`Imported: ${added} new island(s), ${merged} sentence(s) merged into existing.`);
+      render();
+    } catch (e) { alert('That file could not be read as an Islands export.'); }
+  };
+  reader.readAsText(file);
+}
+
+/* ----------------------------- views ---------------------------- */
+
+function viewList() {
+  return `
+    <div class="eyebrow">French practice</div>
+    <h1>Islands</h1>
+    <p class="sub">Paste what you want to be able to say. Drill it until it's yours.</p>
+
+    <div class="btn-row" style="margin-top:20px">
+      <button class="btn btn-primary" data-act="new">+ New island</button>
+      <button class="btn" data-act="export">Export</button>
+      <button class="btn" data-act="import-click">Import</button>
+      <input type="file" id="filein" accept="application/json,.json" class="hidden">
+    </div>
+
+    <div style="margin-top:24px">
+      ${islands.length === 0 ? `
+        <div class="card empty">
+          Nothing here yet. Paste a few French sentences — a podcast line,
+          something you fumbled this week — and they become your first island.
+        </div>` :
+        islands.map(isl => `
+          <div class="card island">
+            <div class="island-main" data-act="open" data-id="${isl.id}" role="button" tabindex="0">
+              <div class="island-name">${esc(isl.name)}</div>
+              <div class="island-meta">${isl.sentences.length} sentence${isl.sentences.length === 1 ? '' : 's'}</div>
+            </div>
+            <button class="icon-btn" data-act="edit" data-id="${isl.id}" aria-label="Edit ${esc(isl.name)}">✎</button>
+            <button class="icon-btn" data-act="del" data-id="${isl.id}" aria-label="Delete ${esc(isl.name)}">🗑</button>
+          </div>`).join('')}
+    </div>
+
+    <p class="note">
+      Everything is stored on this device. Export writes a file you can move to your
+      other device and import there — new islands merge, existing ones gain any new sentences.
+    </p>`;
+}
+
+function viewImport() {
+  if (!draft) {
+    return `
+      <button class="btn" data-act="back" style="margin-bottom:18px">‹ Islands</button>
+      <div class="eyebrow">New island</div>
+      <h1>Paste your French</h1>
+      <p class="sub">Split into sentences, then translated if you're online.</p>
+
+      <label class="label" for="nm">Name</label>
+      <input class="input" id="nm" placeholder="Bike tour">
+
+      <label class="label" for="tx">French text</label>
+      <textarea class="textarea" id="tx" placeholder="Là, je prends le train pour Prague. De là, je pars faire du vélo avec un pote…"></textarea>
+
+      <p class="note">
+        Tip: one sentence per line as <b>French = English</b> if you want to supply your
+        own translations — handy offline.
+      </p>
+
+      <button class="btn btn-primary btn-full" data-act="parse" style="margin-top:16px">Continue</button>`;
+  }
+
+  return `
+    <button class="btn" data-act="back" style="margin-bottom:18px">‹ Islands</button>
+    <div class="eyebrow">${esc(draft.name)}</div>
+    <h1>Check the English</h1>
+    <p class="sub">${draft.sentences.length} sentence${draft.sentences.length === 1 ? '' : 's'}. Machine translation — fix anything clumsy.</p>
+
+    <div class="btn-row" style="margin:16px 0">
+      <button class="btn" data-act="translate" ${navigator.onLine ? '' : 'disabled'}>
+        ${draft.busy ? 'Translating…' : 'Auto-translate'}
+      </button>
+    </div>
+    ${draft.error ? `<div class="err">${esc(draft.error)}</div>` : ''}
+
+    ${draft.sentences.map((s, i) => `
+      <div class="card pair">
+        <p class="fr">${i + 1}. ${esc(s.fr)}</p>
+        <input data-en="${i}" value="${esc(s.en)}" placeholder="English…">
+      </div>`).join('')}
+
+    <button class="btn btn-primary btn-full" data-act="create" style="margin-top:14px">Create island</button>`;
+}
+
+function viewEdit() {
+  const isl = current();
+  if (!isl) { view.screen = 'list'; return viewList(); }
+
+  return `
+    <button class="btn" data-act="save-edit" style="margin-bottom:18px">‹ Save and close</button>
+    <div class="eyebrow">Editing</div>
+    <h1>${esc(isl.name)}</h1>
+
+    <label class="label" for="ednm">Island name</label>
+    <input class="input" id="ednm" value="${esc(isl.name)}">
+
+    <label class="label">Sentences</label>
+    ${isl.sentences.length === 0 ? `<div class="card empty">No sentences yet — add one below.</div>` : ''}
+    ${isl.sentences.map((s, i) => `
+      <div class="card pair">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <span class="num">#${i + 1}</span>
+          <button class="icon-btn" data-act="up" data-i="${i}" aria-label="Move up" ${i === 0 ? 'disabled' : ''}>↑</button>
+          <button class="icon-btn" data-act="down" data-i="${i}" aria-label="Move down" ${i === isl.sentences.length - 1 ? 'disabled' : ''}>↓</button>
+          <span style="flex:1"></span>
+          <button class="icon-btn" data-act="delsent" data-i="${i}" aria-label="Delete sentence">🗑</button>
+        </div>
+        <input data-fr="${i}" value="${esc(s.fr)}" placeholder="French…" style="font-weight:700;margin-bottom:6px">
+        <input data-en="${i}" value="${esc(s.en)}" placeholder="English…">
+      </div>`).join('')}
+
+    <div class="btn-row" style="margin-top:14px">
+      <button class="btn" data-act="addsent">+ Add sentence</button>
+      <button class="btn" data-act="addpaste">Paste more text</button>
+    </div>
+
+    <button class="btn btn-primary btn-full" data-act="save-edit" style="margin-top:16px">Save and close</button>
+    <p class="note">Changes save when you close. Reordering and deletions apply immediately.</p>`;
+}
+
+function viewPlayer() {
+  const isl = current();
+  if (!isl) { view.screen = 'list'; return viewList(); }
+  const isRecall = view.mode === 'recall';
+  const accent = isRecall ? 'var(--teal)' : 'var(--amber)';
+  const rev = view.revealed[view.mode];
+  const allOpen = isl.sentences.length > 0 && isl.sentences.every(s => rev[s.id]);
+  const info = speech.info();
+
+  return `
+    <button class="btn" data-act="back" style="margin-bottom:16px">‹ Islands</button>
+    <div class="eyebrow">${isl.sentences.length} sentences</div>
+    <h1 style="margin-bottom:16px">${esc(isl.name)}</h1>
+
+    <div class="modebar">
+      <button class="mode ${!isRecall ? 'on-shadow' : ''}" data-act="mode" data-mode="shadow">Shadowing</button>
+      <button class="mode ${isRecall ? 'on-recall' : ''}" data-act="mode" data-mode="recall">Recall</button>
+    </div>
+
+    <div class="card transport">
+      <button class="play" style="background:${accent}" data-act="playall"
+        aria-label="${playing ? 'Stop' : 'Play island'}">${playing ? '■' : '▶'}</button>
+      <div class="transport-read">
+        ${playing
+          ? `<b>#${cursor + 1}</b> · pass <b>${repNow}</b> of <b>${prefs.reps}</b>`
+          : isRecall
+            ? `Say it in French first — audio follows after <b>${prefs.gap}s</b>.`
+            : `Every sentence, <b>${prefs.reps}×</b> each at <b>${prefs.rate.toFixed(2)}×</b>.`}
+      </div>
+      <button class="icon-btn" data-act="settings" aria-expanded="${view.settingsOpen}"
+        aria-label="Playback settings">⚙</button>
+    </div>
+
+    ${view.settingsOpen ? `
+      <div class="card settings">
+        <div class="slider-row"><span>Repeats</span>
+          <input type="range" min="1" max="5" step="1" value="${prefs.reps}" data-pref="reps">
+          <span>${prefs.reps}×</span></div>
+        <div class="slider-row"><span>Speed</span>
+          <input type="range" min="0.5" max="1.2" step="0.05" value="${prefs.rate}" data-pref="rate">
+          <span>${prefs.rate.toFixed(2)}×</span></div>
+        <div class="slider-row"><span>Gap</span>
+          <input type="range" min="0" max="6" step="0.5" value="${prefs.gap}" data-pref="gap">
+          <span>${prefs.gap}s</span></div>
+      </div>` : ''}
+
+    <button class="btn" data-act="revealall" style="margin-bottom:12px">
+      ${allOpen ? (isRecall ? 'Hide all French' : 'Hide all English')
+                : (isRecall ? 'Reveal all French' : 'Reveal all English')}
+    </button>
+
+    ${isl.sentences.map((s, i) => {
+      const open = !!rev[s.id];
+      return `
+        <div class="card sent ${cursor === i ? 'active' : ''}">
+          <div class="sent-top">
+            <span class="num">#${i + 1}</span>
+            <button class="icon-btn" data-act="playone" data-i="${i}"
+              aria-label="Play sentence ${i + 1}, ${prefs.reps} times">🔊</button>
+          </div>
+          <p class="prompt">${esc(isRecall ? s.en : s.fr)}</p>
+          <button class="reveal" data-act="reveal" data-id="${s.id}">
+            ${open ? 'Hide' : (isRecall ? 'Reveal the French' : 'Reveal the English')}
+          </button>
+          ${open ? `<div class="answer"><p class="answer-text">${esc(isRecall ? s.fr : s.en)}</p></div>` : ''}
+          ${cursor === i ? `<div class="progress" style="width:${(repNow / prefs.reps) * 100}%"></div>` : ''}
+        </div>`;
+    }).join('')}
+
+    <p class="note">
+      Voices come from the device, not the app. If nothing plays on Android, install the
+      French voice under Settings → search “text-to-speech” → Install voice data.
+    </p>`;
+}
+
+/* ---------------------------- render ---------------------------- */
+
+function render() {
+  const app = document.getElementById('app');
+  app.innerHTML = view.screen === 'list' ? viewList()
+    : view.screen === 'import' ? viewImport()
+    : view.screen === 'edit' ? viewEdit()
+    : viewPlayer();
+}
+
+/* ---------------------------- events ---------------------------- */
+
+document.addEventListener('click', async (e) => {
+  const el = e.target.closest('[data-act]');
+  if (!el) return;
+  const act = el.dataset.act;
+
+  if (act === 'new') { draft = null; view.screen = 'import'; render(); }
+
+  else if (act === 'back') {
+    halt(); draft = null; view.screen = 'list'; render();
+  }
+
+  else if (act === 'open') {
+    view.id = el.dataset.id; view.screen = 'player';
+    view.revealed = { shadow:{}, recall:{} }; render();
+  }
+
+  else if (act === 'del') {
+    const isl = islands.find(i => i.id === el.dataset.id);
+    if (isl && confirm(`Delete “${isl.name}” and its ${isl.sentences.length} sentences?`)) {
+      islands = islands.filter(i => i.id !== el.dataset.id); save(); render();
+    }
+  }
+
+  else if (act === 'export') exportFile();
+  else if (act === 'import-click') document.getElementById('filein').click();
+
+  else if (act === 'parse') {
+    const name = document.getElementById('nm').value.trim();
+    const text = document.getElementById('tx').value.trim();
+    if (text.length < 3) { alert('Paste some French first.'); return; }
+    draft = { name: name || 'Untitled island', sentences: parsePaste(text), busy: false, error: '' };
+    render();
+    if (navigator.onLine && draft.sentences.every(s => !s.en)) {
+      document.querySelector('[data-act="translate"]')?.click();
+    }
+  }
+
+  else if (act === 'translate') {
+    if (!draft || draft.busy) return;
+    draft.busy = true; draft.error = ''; draft.progress = ''; render();
+    try {
+      const out = await translate(draft.sentences, (n, total) => {
+        draft.progress = `${n} of ${total}`;
+        const b = document.querySelector('[data-act="translate"]');
+        if (b) b.textContent = `Translating ${draft.progress}…`;
+      });
+      draft.sentences.forEach((s, i) => { if (out[i]) s.en = String(out[i]).trim(); });
+    } catch (err) {
+      draft.error = 'Translation service did not respond — it has a daily free limit. ' +
+        'Type the English yourself, or create the island now and fill it in later.';
+    }
+    draft.busy = false; draft.progress = ''; render();
+  }
+
+  else if (act === 'create') {
+    if (!draft) return;
+    document.querySelectorAll('[data-en]').forEach(inp => {
+      draft.sentences[+inp.dataset.en].en = inp.value.trim();
+    });
+    const isl = { id: 'isl-' + uid(), name: draft.name, sentences: draft.sentences, created: Date.now() };
+    islands.unshift(isl); save();
+    draft = null; view.id = isl.id; view.screen = 'player';
+    view.revealed = { shadow:{}, recall:{} }; render();
+  }
+
+  else if (act === 'edit') {
+    halt(); view.id = el.dataset.id; view.screen = 'edit'; render();
+  }
+
+  else if (act === 'save-edit') {
+    const isl = current();
+    if (isl) {
+      captureEdits(isl);
+      isl.sentences = isl.sentences.filter(s => s.fr.trim());
+      save();
+    }
+    view.screen = 'list'; render();
+  }
+
+  else if (act === 'addsent') {
+    const isl = current();
+    captureEdits(isl);
+    isl.sentences.push({ id: uid(), fr: '', en: '' });
+    save(); render();
+    const inputs = document.querySelectorAll('[data-fr]');
+    if (inputs.length) inputs[inputs.length - 1].focus();
+  }
+
+  else if (act === 'addpaste') {
+    const isl = current();
+    captureEdits(isl);
+    const text = prompt('Paste more French text — it will be split into sentences and added.');
+    if (text && text.trim()) {
+      parsePaste(text.trim()).forEach(s => isl.sentences.push(s));
+      save();
+    }
+    render();
+  }
+
+  else if (act === 'delsent') {
+    const isl = current();
+    captureEdits(isl);
+    isl.sentences.splice(+el.dataset.i, 1);
+    save(); render();
+  }
+
+  else if (act === 'up' || act === 'down') {
+    const isl = current();
+    captureEdits(isl);
+    const i = +el.dataset.i;
+    const j = act === 'up' ? i - 1 : i + 1;
+    if (j >= 0 && j < isl.sentences.length) {
+      const tmp = isl.sentences[i];
+      isl.sentences[i] = isl.sentences[j];
+      isl.sentences[j] = tmp;
+      save(); render();
+    }
+  }
+
+  else if (act === 'mode') { halt(); view.mode = el.dataset.mode; render(); }
+  else if (act === 'settings') { view.settingsOpen = !view.settingsOpen; render(); }
+  else if (act === 'playall') {
+    if (playing) halt();
+    else playSequence(current().sentences.map((_, i) => i));
+  }
+  else if (act === 'playone') playSequence([+el.dataset.i]);
+
+  else if (act === 'reveal') {
+    const id = el.dataset.id;
+    view.revealed[view.mode][id] = !view.revealed[view.mode][id];
+    render();
+  }
+
+  else if (act === 'revealall') {
+    const isl = current();
+    const rev = view.revealed[view.mode];
+    const allOpen = isl.sentences.every(s => rev[s.id]);
+    const next = {};
+    if (!allOpen) isl.sentences.forEach(s => next[s.id] = true);
+    view.revealed[view.mode] = next;
+    render();
+  }
+});
+
+document.addEventListener('input', (e) => {
+  const p = e.target.dataset.pref;
+  if (p) {
+    prefs[p] = +e.target.value; savePrefs();
+    const row = e.target.closest('.slider-row');
+    row.lastElementChild.textContent =
+      p === 'reps' ? prefs.reps + '×' : p === 'rate' ? prefs.rate.toFixed(2) + '×' : prefs.gap + 's';
+    const read = document.querySelector('.transport-read');
+    if (read && !playing) {
+      read.innerHTML = view.mode === 'recall'
+        ? `Say it in French first — audio follows after <b>${prefs.gap}s</b>.`
+        : `Every sentence, <b>${prefs.reps}×</b> each at <b>${prefs.rate.toFixed(2)}×</b>.`;
+    }
+  }
+});
+
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'filein' && e.target.files[0]) {
+    importFile(e.target.files[0]);
+    e.target.value = '';
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') {
+    const el = e.target.closest('[data-act="open"]');
+    if (el) { e.preventDefault(); el.click(); }
+  }
+});
+
+function updateOnline() {
+  document.getElementById('offline').classList.toggle('hidden', navigator.onLine);
+}
+window.addEventListener('online', updateOnline);
+window.addEventListener('offline', updateOnline);
+
+/* ----------------------------- boot ----------------------------- */
+
+load();
+updateOnline();
+render();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
