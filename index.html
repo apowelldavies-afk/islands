@@ -7,6 +7,7 @@
 <title>Islands — French practice</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   @font-face{
     font-family:'Nunito';font-style:normal;font-weight:400 700;font-display:swap;
@@ -118,6 +119,7 @@
 
 const LS_KEY = 'islands.v1';
 const LS_PREFS = 'islands.prefs.v1';
+const LS_DRIVE_SYNC = 'islands.drive.lastsync';
 
 /* ---------------------------- state ---------------------------- */
 
@@ -127,6 +129,7 @@ let view = { screen: 'list', id: null, mode: 'shadow', revealed: { shadow:{}, re
 let draft = null;           // in-progress import
 let playToken = 0;
 let playing = false, cursor = -1, repNow = 0;
+let driveSyncing = false, driveError = '';
 
 function load() {
   try { islands = JSON.parse(localStorage.getItem(LS_KEY) || '[]'); } catch (e) { islands = []; }
@@ -143,17 +146,20 @@ function savePrefs() {
 /* ---------------------------- speech ---------------------------- */
 
 const speech = (() => {
-  let voice = null, voiceCount = 0, warmed = false;
+  let voice = null, voiceCount = 0, warmed = false, frVoices = [];
 
   function pick() {
     if (!window.speechSynthesis) return;
     const vs = window.speechSynthesis.getVoices() || [];
     voiceCount = vs.length;
-    const fr = vs.filter(v => v.lang && v.lang.toLowerCase().replace('_','-').startsWith('fr'));
-    if (fr.length) {
-      voice = fr.find(v => /thomas|amelie|amélie|audrey|marie|denise|celine/i.test(v.name)) || fr[0];
+    frVoices = vs.filter(v => v.lang && v.lang.toLowerCase().replace('_','-').startsWith('fr'));
+    if (frVoices.length) {
+      const chosen = prefs.voiceURI && frVoices.find(v => v.voiceURI === prefs.voiceURI);
+      voice = chosen || frVoices.find(v => /thomas|amelie|amélie|audrey|marie|denise|celine/i.test(v.name)) || frVoices[0];
     }
   }
+
+  function setVoice(uri) { prefs.voiceURI = uri || ''; savePrefs(); pick(); }
 
   if (window.speechSynthesis) {
     pick();
@@ -189,7 +195,7 @@ const speech = (() => {
   }
 
   function stop() { try { window.speechSynthesis.cancel(); } catch (e) {} }
-  return { speak, stop, info: () => ({ voice, voiceCount }) };
+  return { speak, stop, setVoice, info: () => ({ voice, voiceCount, voices: frVoices }) };
 })();
 
 function wait(ms, token) {
@@ -217,16 +223,18 @@ async function playSequence(indices) {
   const isRecall = view.mode === 'recall';
   const island = current();
 
+  let first = true;
   for (const i of indices) {
     if (playToken !== token) return;
     cursor = i;
     for (let r = 1; r <= prefs.reps; r++) {
       if (playToken !== token) return;
       repNow = r; render();
-      if (isRecall) await wait(prefs.gap * 1000, token);   // silence first: produce it yourself
+      if (isRecall && !first) await wait(prefs.gap * 1000, token);   // silence first: produce it yourself (skipped before the very first playback)
       if (playToken !== token) return;
       await speech.speak(island.sentences[i].fr, prefs.rate);
       if (!isRecall) await wait(prefs.gap * 1000, token);
+      first = false;
     }
   }
   if (playToken === token) { playing = false; cursor = -1; repNow = 0; render(); }
@@ -264,8 +272,10 @@ function splitSentences(text) {
 }
 
 /* Accepts "French = English" / "French | English" / "French — English" per line,
-   otherwise treats the whole paste as French prose to be split. */
-function parsePaste(text) {
+   otherwise treats the whole paste as French prose to be split. If a matching
+   English paragraph was pasted separately, it's split the same way and paired
+   up by position — sentences beyond its length are left blank. */
+function parsePaste(text, enText) {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   const delim = /\s+(?:=|\||\t|—)\s+/;
   const paired = lines.filter(l => delim.test(l));
@@ -275,13 +285,29 @@ function parsePaste(text) {
       return { id: uid(), fr: (fr || '').trim(), en: (en || '').trim() };
     }).filter(s => s.fr);
   }
-  return splitSentences(text).map(s => ({ id: uid(), fr: s, en: '' }));
+  const enSentences = enText ? splitSentences(enText) : [];
+  return splitSentences(text).map((s, i) => ({ id: uid(), fr: s, en: (enSentences[i] || '').trim() }));
 }
 
 /* Translation.
    The Anthropic API needs a paid key, which this app deliberately doesn't have.
-   MyMemory is free and keyless — machine quality, so the English is always editable. */
-async function translateOne(fr) {
+   Google's translate endpoint is free, keyless, and noticeably better than
+   MyMemory — but it's unofficial/undocumented, so MyMemory is kept as a
+   fallback if it ever stops responding. Either way, quality is machine-grade,
+   which is why the English is always editable. */
+async function translateViaGoogle(fr) {
+  const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=fr&tl=en&dt=t&q=' +
+    encodeURIComponent(fr);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('http ' + res.status);
+  const data = await res.json();
+  const out = Array.isArray(data) && Array.isArray(data[0])
+    ? data[0].map(chunk => chunk[0]).join('') : '';
+  if (!out) throw new Error('empty');
+  return out.trim();
+}
+
+async function translateViaMyMemory(fr) {
   const url = 'https://api.mymemory.translated.net/get?q=' +
     encodeURIComponent(fr) + '&langpair=fr|en';
   const res = await fetch(url);
@@ -292,6 +318,11 @@ async function translateOne(fr) {
   // The service echoes warnings in-band on quota errors.
   if (/MYMEMORY WARNING|QUERY LENGTH LIMIT/i.test(out)) throw new Error('quota');
   return out.trim();
+}
+
+async function translateOne(fr) {
+  try { return await translateViaGoogle(fr); }
+  catch (e) { return await translateViaMyMemory(fr); }
 }
 
 async function translate(sentences, onProgress) {
@@ -316,28 +347,147 @@ function exportFile() {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/* Shared by manual import and Drive sync: adds new islands, and for islands
+   that already exist (matched by id or name), appends any sentences that
+   aren't already present (matched by French text). Never overwrites. */
+function mergeIncoming(incoming) {
+  if (!Array.isArray(incoming)) throw new Error('bad data');
+  let added = 0, merged = 0;
+  incoming.forEach(inc => {
+    if (!inc || !inc.name || !Array.isArray(inc.sentences)) return;
+    const hit = islands.find(x => x.id === inc.id || x.name === inc.name);
+    if (hit) {
+      const seen = new Set(hit.sentences.map(s => s.fr));
+      inc.sentences.forEach(s => { if (!seen.has(s.fr)) { hit.sentences.push(s); merged++; } });
+    } else { islands.unshift(inc); added++; }
+  });
+  save();
+  return { added, merged };
+}
+
 function importFile(file) {
   const reader = new FileReader();
   reader.onload = () => {
     try {
       const data = JSON.parse(reader.result);
       const incoming = Array.isArray(data) ? data : data.islands;
-      if (!Array.isArray(incoming)) throw new Error('bad file');
-      let added = 0, merged = 0;
-      incoming.forEach(inc => {
-        if (!inc || !inc.name || !Array.isArray(inc.sentences)) return;
-        const hit = islands.find(x => x.id === inc.id || x.name === inc.name);
-        if (hit) {
-          const seen = new Set(hit.sentences.map(s => s.fr));
-          inc.sentences.forEach(s => { if (!seen.has(s.fr)) { hit.sentences.push(s); merged++; } });
-        } else { islands.unshift(inc); added++; }
-      });
-      save();
+      const { added, merged } = mergeIncoming(incoming);
       alert(`Imported: ${added} new island(s), ${merged} sentence(s) merged into existing.`);
       render();
     } catch (e) { alert('That file could not be read as an Islands export.'); }
   };
   reader.readAsText(file);
+}
+
+/* ------------------------ Google Drive sync ----------------------
+   Uses the drive.file scope, which only lets the app see files it created
+   itself — not the rest of the user's Drive. The token comes from Google's
+   client-side Identity Services and lives in memory only (no refresh token,
+   by design, since there's no server to hold one securely); it lasts about
+   an hour, after which the next Sync tap re-authorises, usually silently. */
+
+const DRIVE_CLIENT_ID = '155205081465-vdu36hg1uui70tgfa5aem18rtgpkv6rh.apps.googleusercontent.com';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_FILENAME = 'islands-sync.json';
+
+const drive = (() => {
+  let accessToken = '', tokenExpiry = 0, fileId = null;
+
+  function ready() {
+    return new Promise(resolve => {
+      if (window.google && google.accounts && google.accounts.oauth2) return resolve();
+      const iv = setInterval(() => {
+        if (window.google && google.accounts && google.accounts.oauth2) { clearInterval(iv); resolve(); }
+      }, 100);
+    });
+  }
+
+  async function connect() {
+    if (accessToken && Date.now() < tokenExpiry) return accessToken;
+    await ready();
+    return new Promise((resolve, reject) => {
+      const tc = google.accounts.oauth2.initTokenClient({
+        client_id: DRIVE_CLIENT_ID,
+        scope: DRIVE_SCOPE,
+        callback: (resp) => {
+          if (resp.error) return reject(new Error(resp.error));
+          accessToken = resp.access_token;
+          tokenExpiry = Date.now() + (resp.expires_in - 60) * 1000;
+          resolve(accessToken);
+        },
+        error_callback: (err) => reject(new Error(err && err.type || 'auth failed')),
+      });
+      tc.requestAccessToken({ prompt: '' });
+    });
+  }
+
+  async function api(path, opts = {}) {
+    const token = await connect();
+    const res = await fetch('https://www.googleapis.com/drive/v3/' + path, {
+      ...opts,
+      headers: { ...(opts.headers || {}), Authorization: 'Bearer ' + token },
+    });
+    if (!res.ok) throw new Error('Drive request failed (' + res.status + ')');
+    return res;
+  }
+
+  async function findFile() {
+    if (fileId) return fileId;
+    const q = encodeURIComponent(`name='${DRIVE_FILENAME}' and trashed=false`);
+    const res = await api(`files?q=${q}&spaces=drive&fields=files(id,name)`);
+    const data = await res.json();
+    fileId = (data.files && data.files[0] && data.files[0].id) || null;
+    return fileId;
+  }
+
+  async function pull() {
+    const id = await findFile();
+    if (!id) return null;
+    const res = await api(`files/${id}?alt=media`);
+    return res.json();
+  }
+
+  async function push(payload) {
+    const id = await findFile();
+    const body = JSON.stringify(payload);
+    if (id) {
+      await api(`files/${id}?uploadType=media`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body
+      });
+      return id;
+    }
+    const boundary = 'islandsbnd' + uid();
+    const metadata = { name: DRIVE_FILENAME, mimeType: 'application/json' };
+    const multipart =
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
+      `--${boundary}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${boundary}--`;
+    const res = await api('files?uploadType=multipart', {
+      method: 'POST',
+      headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+      body: multipart,
+    });
+    const data = await res.json();
+    fileId = data.id;
+    return fileId;
+  }
+
+  return { connect, pull, push };
+})();
+
+async function syncDrive() {
+  if (driveSyncing) return;
+  driveSyncing = true; driveError = ''; render();
+  try {
+    await drive.connect();
+    const remote = await drive.pull();
+    if (remote && Array.isArray(remote.islands)) mergeIncoming(remote.islands);
+    await drive.push({ v: 1, exported: Date.now(), islands });
+    localStorage.setItem(LS_DRIVE_SYNC, new Date().toISOString());
+  } catch (e) {
+    driveError = 'Drive sync failed — ' + (e && e.message ? e.message : 'unknown error') +
+      '. Your data is safe on this device; try again, or use Export/Import instead.';
+  }
+  driveSyncing = false; render();
 }
 
 /* ----------------------------- views ---------------------------- */
@@ -350,10 +500,18 @@ function viewList() {
 
     <div class="btn-row" style="margin-top:20px">
       <button class="btn btn-primary" data-act="new">+ New island</button>
+      <button class="btn" data-act="sync" ${navigator.onLine && !driveSyncing ? '' : 'disabled'}>
+        ${driveSyncing ? 'Syncing…' : '⟳ Sync (Drive)'}
+      </button>
       <button class="btn" data-act="export">Export</button>
       <button class="btn" data-act="import-click">Import</button>
       <input type="file" id="filein" accept="application/json,.json" class="hidden">
     </div>
+    ${(() => {
+      const last = localStorage.getItem(LS_DRIVE_SYNC);
+      return last ? `<p class="note">Last synced with Drive: ${esc(new Date(last).toLocaleString())}</p>` : '';
+    })()}
+    ${driveError ? `<p class="note" style="color:var(--danger)">${esc(driveError)}</p>` : ''}
 
     <div style="margin-top:24px">
       ${islands.length === 0 ? `
@@ -392,9 +550,14 @@ function viewImport() {
       <label class="label" for="tx">French text</label>
       <textarea class="textarea" id="tx" placeholder="Là, je prends le train pour Prague. De là, je pars faire du vélo avec un pote…"></textarea>
 
+      <label class="label" for="entx">English translation (optional)</label>
+      <textarea class="textarea" id="entx" placeholder="Paste the matching English paragraph here if you already have one…"></textarea>
+
       <p class="note">
         Tip: one sentence per line as <b>French = English</b> if you want to supply your
-        own translations — handy offline.
+        own translations — handy offline. Or paste a full English paragraph above; it's
+        split the same way and lined up by sentence order. Anything left over is
+        auto-translated online.
       </p>
 
       <button class="btn btn-primary btn-full" data-act="parse" style="margin-top:16px">Continue</button>`;
@@ -407,8 +570,8 @@ function viewImport() {
     <p class="sub">${draft.sentences.length} sentence${draft.sentences.length === 1 ? '' : 's'}. Machine translation — fix anything clumsy.</p>
 
     <div class="btn-row" style="margin:16px 0">
-      <button class="btn" data-act="translate" ${navigator.onLine ? '' : 'disabled'}>
-        ${draft.busy ? 'Translating…' : 'Auto-translate'}
+      <button class="btn" data-act="translate" ${navigator.onLine && draft.sentences.some(s => !s.en) ? '' : 'disabled'}>
+        ${draft.busy ? `Translating ${draft.progress}…` : 'Auto-translate the rest'}
       </button>
     </div>
     ${draft.error ? `<div class="err">${esc(draft.error)}</div>` : ''}
@@ -502,6 +665,13 @@ function viewPlayer() {
         <div class="slider-row"><span>Gap</span>
           <input type="range" min="0" max="6" step="0.5" value="${prefs.gap}" data-pref="gap">
           <span>${prefs.gap}s</span></div>
+        ${info.voices.length ? `
+        <div style="display:grid;gap:6px">
+          <span style="font-size:13px;color:var(--muted);font-weight:600">Voice</span>
+          <select class="input" data-pref="voice" style="padding:9px 11px;font-size:14px">
+            ${info.voices.map(v => `<option value="${esc(v.voiceURI)}" ${info.voice && v.voiceURI === info.voice.voiceURI ? 'selected' : ''}>${esc(v.name)}</option>`).join('')}
+          </select>
+        </div>` : `<p style="font-size:12.5px;color:var(--muted);margin:0">No French voice found on this device yet — see the note below.</p>`}
       </div>` : ''}
 
     <button class="btn" data-act="revealall" style="margin-bottom:12px">
@@ -528,8 +698,9 @@ function viewPlayer() {
     }).join('')}
 
     <p class="note">
-      Voices come from the device, not the app. If nothing plays on Android, install the
-      French voice under Settings → search “text-to-speech” → Install voice data.
+      Voices come from the device, not the app — pick which one to use under ⚙. If nothing
+      plays on Android, install the French voice under Settings → search “text-to-speech” →
+      Install voice data.
     </p>`;
 }
 
@@ -570,30 +741,34 @@ document.addEventListener('click', async (e) => {
 
   else if (act === 'export') exportFile();
   else if (act === 'import-click') document.getElementById('filein').click();
+  else if (act === 'sync') syncDrive();
 
   else if (act === 'parse') {
     const name = document.getElementById('nm').value.trim();
     const text = document.getElementById('tx').value.trim();
+    const enText = document.getElementById('entx').value.trim();
     if (text.length < 3) { alert('Paste some French first.'); return; }
-    draft = { name: name || 'Untitled island', sentences: parsePaste(text), busy: false, error: '' };
+    draft = { name: name || 'Untitled island', sentences: parsePaste(text, enText), busy: false, error: '' };
     render();
-    if (navigator.onLine && draft.sentences.every(s => !s.en)) {
+    if (navigator.onLine && draft.sentences.some(s => !s.en)) {
       document.querySelector('[data-act="translate"]')?.click();
     }
   }
 
   else if (act === 'translate') {
     if (!draft || draft.busy) return;
+    const missing = draft.sentences.filter(s => !s.en);
+    if (!missing.length) return;
     draft.busy = true; draft.error = ''; draft.progress = ''; render();
     try {
-      const out = await translate(draft.sentences, (n, total) => {
+      const out = await translate(missing, (n, total) => {
         draft.progress = `${n} of ${total}`;
         const b = document.querySelector('[data-act="translate"]');
         if (b) b.textContent = `Translating ${draft.progress}…`;
       });
-      draft.sentences.forEach((s, i) => { if (out[i]) s.en = String(out[i]).trim(); });
+      missing.forEach((s, i) => { if (out[i]) s.en = String(out[i]).trim(); });
     } catch (err) {
-      draft.error = 'Translation service did not respond — it has a daily free limit. ' +
+      draft.error = 'Translation services did not respond — they have a daily free limit. ' +
         'Type the English yourself, or create the island now and fill it in later.';
     }
     draft.busy = false; draft.progress = ''; render();
@@ -691,6 +866,7 @@ document.addEventListener('click', async (e) => {
 
 document.addEventListener('input', (e) => {
   const p = e.target.dataset.pref;
+  if (p === 'voice') { speech.setVoice(e.target.value); return; }
   if (p) {
     prefs[p] = +e.target.value; savePrefs();
     const row = e.target.closest('.slider-row');
@@ -710,6 +886,7 @@ document.addEventListener('change', (e) => {
     importFile(e.target.files[0]);
     e.target.value = '';
   }
+  if (e.target.dataset.pref === 'voice') speech.setVoice(e.target.value);
 });
 
 document.addEventListener('keydown', (e) => {

@@ -1,7 +1,7 @@
 /* Islands — offline cache.
    Bump CACHE when you change index.html, or the old version will keep loading. */
 
-const CACHE = 'islands-v2';
+const CACHE = 'islands-v4';
 const ASSETS = [
   './',
   './index.html',
@@ -30,8 +30,9 @@ self.addEventListener('fetch', (e) => {
   const { request } = e;
   if (request.method !== 'GET') return;
 
-  // Never cache the translation API.
-  if (request.url.includes('api.anthropic.com')) return;
+  // Never cache the translation APIs.
+  if (request.url.includes('translate.googleapis.com') ||
+      request.url.includes('api.mymemory.translated.net')) return;
 
   // Network-first for the page itself so updates land; cache is the fallback.
   if (request.mode === 'navigate') {
