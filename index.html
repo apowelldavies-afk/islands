@@ -431,6 +431,18 @@ const drive = (() => {
     return res;
   }
 
+  // Requests that carry file content (create/update) need Drive's separate
+  // /upload/ endpoint, not the plain metadata one `api()` uses.
+  async function apiUpload(path, opts = {}) {
+    const token = await connect();
+    const res = await fetch('https://www.googleapis.com/upload/drive/v3/' + path, {
+      ...opts,
+      headers: { ...(opts.headers || {}), Authorization: 'Bearer ' + token },
+    });
+    if (!res.ok) throw new Error('Drive request failed (' + res.status + ')');
+    return res;
+  }
+
   async function findFile() {
     if (fileId) return fileId;
     const q = encodeURIComponent(`name='${DRIVE_FILENAME}' and trashed=false`);
@@ -451,7 +463,7 @@ const drive = (() => {
     const id = await findFile();
     const body = JSON.stringify(payload);
     if (id) {
-      await api(`files/${id}?uploadType=media`, {
+      await apiUpload(`files/${id}?uploadType=media`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body
       });
       return id;
@@ -461,7 +473,7 @@ const drive = (() => {
     const multipart =
       `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
       `--${boundary}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${boundary}--`;
-    const res = await api('files?uploadType=multipart', {
+    const res = await apiUpload('files?uploadType=multipart', {
       method: 'POST',
       headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
       body: multipart,
