@@ -1,7 +1,7 @@
 /* Islands — offline cache.
    Bump CACHE when you change index.html, or the old version will keep loading. */
 
-const CACHE = 'islands-v7';
+const CACHE = 'islands-v8';
 const ASSETS = [
   './',
   './index.html',
