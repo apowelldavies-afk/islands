@@ -81,6 +81,7 @@
   .icon-btn{width:40px;height:40px;border-radius:9px;border:1px solid var(--line);background:var(--surface);
     display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--ink);font-size:15px;}
   .icon-btn:active{background:#EFF0EC;}
+  .icon-btn:disabled{opacity:.35;cursor:default;}
   .prompt{font-size:20px;line-height:1.45;font-weight:700;margin:0;}
   .reveal{margin-top:9px;background:none;border:none;padding:6px 0;font-size:13px;font-style:italic;
     color:var(--muted);cursor:pointer;font-weight:600;}
@@ -120,10 +121,13 @@
 const LS_KEY = 'islands.v1';
 const LS_PREFS = 'islands.prefs.v1';
 const LS_DRIVE_SYNC = 'islands.drive.lastsync';
+const LS_DELETED = 'islands.deleted.v1';
 
 /* ---------------------------- state ---------------------------- */
 
 let islands = [];
+let deletedIds = [];        // tombstones — ids deleted here or elsewhere, so
+                             // sync/import never resurrects them (see mergeIncoming)
 let prefs = { reps: 2, rate: 0.85, gap: 2 };
 let view = { screen: 'list', id: null, mode: 'shadow', revealed: { shadow:{}, recall:{} }, settingsOpen: false };
 let draft = null;           // in-progress import
@@ -133,11 +137,15 @@ let driveSyncing = false, driveError = '';
 
 function load() {
   try { islands = JSON.parse(localStorage.getItem(LS_KEY) || '[]'); } catch (e) { islands = []; }
+  try { deletedIds = JSON.parse(localStorage.getItem(LS_DELETED) || '[]'); } catch (e) { deletedIds = []; }
   try { Object.assign(prefs, JSON.parse(localStorage.getItem(LS_PREFS) || '{}')); } catch (e) {}
 }
 function save() {
   try { localStorage.setItem(LS_KEY, JSON.stringify(islands)); }
   catch (e) { alert('Could not save — device storage may be full.'); }
+}
+function saveDeleted() {
+  try { localStorage.setItem(LS_DELETED, JSON.stringify(deletedIds)); } catch (e) {}
 }
 function savePrefs() {
   try { localStorage.setItem(LS_PREFS, JSON.stringify(prefs)); } catch (e) {}
@@ -337,7 +345,7 @@ async function translate(sentences, onProgress) {
 /* ------------------------ export / import ----------------------- */
 
 function exportFile() {
-  const blob = new Blob([JSON.stringify({ v: 1, exported: Date.now(), islands }, null, 2)],
+  const blob = new Blob([JSON.stringify({ v: 1, exported: Date.now(), islands, deletedIds }, null, 2)],
     { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -349,19 +357,28 @@ function exportFile() {
 
 /* Shared by manual import and Drive sync: adds new islands, and for islands
    that already exist (matched by id or name), appends any sentences that
-   aren't already present (matched by French text). Never overwrites. */
-function mergeIncoming(incoming) {
+   aren't already present (matched by French text). Never overwrites existing
+   content. Deletions are tracked as tombstones (deletedIds) so a delete on one
+   device doesn't get resurrected by a sync/import from a device that hasn't
+   seen the delete yet — without this, pulling the other side's still-has-it
+   copy would just re-add the island right back. */
+function mergeIncoming(incoming, incomingDeleted) {
   if (!Array.isArray(incoming)) throw new Error('bad data');
+  if (Array.isArray(incomingDeleted)) {
+    incomingDeleted.forEach(id => { if (!deletedIds.includes(id)) deletedIds.push(id); });
+  }
+  islands = islands.filter(isl => !deletedIds.includes(isl.id));
   let added = 0, merged = 0;
   incoming.forEach(inc => {
     if (!inc || !inc.name || !Array.isArray(inc.sentences)) return;
+    if (deletedIds.includes(inc.id)) return;
     const hit = islands.find(x => x.id === inc.id || x.name === inc.name);
     if (hit) {
       const seen = new Set(hit.sentences.map(s => s.fr));
       inc.sentences.forEach(s => { if (!seen.has(s.fr)) { hit.sentences.push(s); merged++; } });
     } else { islands.unshift(inc); added++; }
   });
-  save();
+  save(); saveDeleted();
   return { added, merged };
 }
 
@@ -371,7 +388,8 @@ function importFile(file) {
     try {
       const data = JSON.parse(reader.result);
       const incoming = Array.isArray(data) ? data : data.islands;
-      const { added, merged } = mergeIncoming(incoming);
+      const incomingDeleted = Array.isArray(data) ? [] : data.deletedIds;
+      const { added, merged } = mergeIncoming(incoming, incomingDeleted);
       alert(`Imported: ${added} new island(s), ${merged} sentence(s) merged into existing.`);
       render();
     } catch (e) { alert('That file could not be read as an Islands export.'); }
@@ -492,8 +510,8 @@ async function syncDrive() {
   try {
     await drive.connect();
     const remote = await drive.pull();
-    if (remote && Array.isArray(remote.islands)) mergeIncoming(remote.islands);
-    await drive.push({ v: 1, exported: Date.now(), islands });
+    if (remote && Array.isArray(remote.islands)) mergeIncoming(remote.islands, remote.deletedIds);
+    await drive.push({ v: 1, exported: Date.now(), islands, deletedIds });
     localStorage.setItem(LS_DRIVE_SYNC, new Date().toISOString());
   } catch (e) {
     driveError = 'Drive sync failed — ' + (e && e.message ? e.message : 'unknown error') +
@@ -531,12 +549,16 @@ function viewList() {
           Nothing here yet. Paste a few French sentences — a podcast line,
           something you fumbled this week — and they become your first island.
         </div>` :
-        islands.map(isl => `
+        islands.map((isl, i) => `
           <div class="card island">
             <div class="island-main" data-act="open" data-id="${isl.id}" role="button" tabindex="0">
               <div class="island-name">${esc(isl.name)}</div>
               <div class="island-meta">${isl.sentences.length} sentence${isl.sentences.length === 1 ? '' : 's'}</div>
             </div>
+            <button class="icon-btn" data-act="moveup" data-id="${isl.id}" ${i === 0 ? 'disabled' : ''}
+              aria-label="Move ${esc(isl.name)} up">↑</button>
+            <button class="icon-btn" data-act="movedown" data-id="${isl.id}" ${i === islands.length - 1 ? 'disabled' : ''}
+              aria-label="Move ${esc(isl.name)} down">↓</button>
             <button class="icon-btn" data-act="edit" data-id="${isl.id}" aria-label="Edit ${esc(isl.name)}">✎</button>
             <button class="icon-btn" data-act="del" data-id="${isl.id}" aria-label="Delete ${esc(isl.name)}">🗑</button>
           </div>`).join('')}
@@ -744,10 +766,20 @@ document.addEventListener('click', async (e) => {
     view.revealed = { shadow:{}, recall:{} }; render();
   }
 
+  else if (act === 'moveup' || act === 'movedown') {
+    const idx = islands.findIndex(i => i.id === el.dataset.id);
+    const swapWith = act === 'moveup' ? idx - 1 : idx + 1;
+    if (idx < 0 || swapWith < 0 || swapWith >= islands.length) return;
+    [islands[idx], islands[swapWith]] = [islands[swapWith], islands[idx]];
+    save(); render();
+  }
+
   else if (act === 'del') {
     const isl = islands.find(i => i.id === el.dataset.id);
     if (isl && confirm(`Delete “${isl.name}” and its ${isl.sentences.length} sentences?`)) {
-      islands = islands.filter(i => i.id !== el.dataset.id); save(); render();
+      islands = islands.filter(i => i.id !== el.dataset.id);
+      if (!deletedIds.includes(isl.id)) deletedIds.push(isl.id);
+      save(); saveDeleted(); render();
     }
   }
 
