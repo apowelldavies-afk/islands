@@ -87,11 +87,11 @@
     display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--ink);font-size:15px;}
   .icon-btn:active{background:#EFF0EC;}
   .icon-btn:disabled{opacity:.35;cursor:default;}
-  .prompt{font-size:17px;line-height:1.45;font-weight:700;margin:0;}
+  .prompt{font-size:15px;line-height:1.45;font-weight:700;margin:0;}
   .reveal{margin-top:9px;background:none;border:none;padding:6px 0;font-size:13px;font-style:italic;
     color:var(--muted);cursor:pointer;font-weight:600;}
   .answer{margin-top:9px;padding-top:9px;border-top:1px solid var(--line);}
-  .answer-text{font-size:15px;line-height:1.45;font-weight:400;color:#4A534C;margin:0;}
+  .answer-text{font-size:13px;line-height:1.45;font-weight:400;color:#4A534C;margin:0;}
   .progress{position:absolute;left:0;bottom:0;height:2px;background:var(--amber);transition:width .1s linear;}
 
   .empty{padding:30px 18px;text-align:center;color:var(--muted);font-size:14px;line-height:1.6;}
@@ -134,7 +134,7 @@ let islands = [];
 let deletedIds = [];        // tombstones — ids deleted here or elsewhere, so
                              // sync/import never resurrects them (see mergeIncoming)
 let prefs = { reps: 2, rate: 0.85, gap: 2 };
-let view = { screen: 'list', id: null, mode: 'shadow', revealed: { shadow:{}, recall:{} }, settingsOpen: false };
+let view = { screen: 'list', id: null, mode: 'recall', revealed: { shadow:{}, recall:{} }, settingsOpen: false };
 let draft = null;           // in-progress import
 let playToken = 0;
 let playing = false, cursor = -1, repNow = 0;
@@ -751,6 +751,30 @@ function render() {
     : viewPlayer();
 }
 
+/* ------------------------- history / back -------------------------
+   The app never changed the URL, so on Android (installed as a PWA)
+   the system back gesture had nothing to consume and just closed the
+   app instead of stepping back a screen. Pushing a history entry each
+   time we go to a "deeper" screen — and driving all back navigation
+   through popstate — fixes that: back now behaves like a normal app. */
+
+function pushHistory() {
+  history.pushState({ screen: view.screen, id: view.id, mode: view.mode }, '');
+}
+function replaceHistory() {
+  history.replaceState({ screen: view.screen, id: view.id, mode: view.mode }, '');
+}
+
+window.addEventListener('popstate', (e) => {
+  halt();
+  const s = e.state || { screen: 'list', id: null, mode: view.mode };
+  view.screen = s.screen; view.id = s.id ?? null;
+  if (s.mode) view.mode = s.mode;
+  view.revealed = { shadow: {}, recall: {} };
+  draft = null;
+  render();
+});
+
 /* ---------------------------- events ---------------------------- */
 
 document.addEventListener('click', async (e) => {
@@ -758,15 +782,15 @@ document.addEventListener('click', async (e) => {
   if (!el) return;
   const act = el.dataset.act;
 
-  if (act === 'new') { draft = null; view.screen = 'import'; render(); }
+  if (act === 'new') { draft = null; view.screen = 'import'; render(); pushHistory(); }
 
   else if (act === 'back') {
-    halt(); draft = null; view.screen = 'list'; render();
+    history.back();
   }
 
   else if (act === 'open') {
     view.id = el.dataset.id; view.screen = 'player';
-    view.revealed = { shadow:{}, recall:{} }; render();
+    view.revealed = { shadow:{}, recall:{} }; render(); pushHistory();
   }
 
   else if (act === 'del') {
@@ -821,11 +845,11 @@ document.addEventListener('click', async (e) => {
     const isl = { id: 'isl-' + uid(), name: draft.name, sentences: draft.sentences, created: Date.now() };
     islands.unshift(isl); save();
     draft = null; view.id = isl.id; view.screen = 'player';
-    view.revealed = { shadow:{}, recall:{} }; render();
+    view.revealed = { shadow:{}, recall:{} }; render(); replaceHistory();
   }
 
   else if (act === 'edit') {
-    halt(); view.id = el.dataset.id; view.screen = 'edit'; render();
+    halt(); view.id = el.dataset.id; view.screen = 'edit'; render(); pushHistory();
   }
 
   else if (act === 'save-edit') {
@@ -835,7 +859,7 @@ document.addEventListener('click', async (e) => {
       isl.sentences = isl.sentences.filter(s => s.fr.trim());
       save();
     }
-    view.screen = 'list'; render();
+    history.back();
   }
 
   else if (act === 'addsent') {
@@ -1010,6 +1034,7 @@ window.addEventListener('offline', updateOnline);
 load();
 updateOnline();
 render();
+replaceHistory();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
